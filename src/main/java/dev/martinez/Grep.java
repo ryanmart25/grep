@@ -7,10 +7,12 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.concurrent.Callable;
-import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+
 
 // recursively searches through your file system starting from the directory that this command is being called from
 @Command(name = "grep", mixinStandardHelpOptions = true, version = "grep 0.0.1",
@@ -31,12 +33,11 @@ public class Grep implements Callable<Integer> {
     public Integer call() throws Exception {
         try{
             Path base_path = Path.of("").toAbsolutePath().normalize();
-            Pattern include_pattern = Pattern.compile(pattern);
-            Pattern exclude_pattern;
-            if (!exclude.equals("")){
-                exclude_pattern= Pattern.compile(exclude);
+            PathMatcher include_pattern = FileSystems.getDefault().getPathMatcher("glob:"+pattern);
+            PathMatcher exclude_pattern;
+            if (!exclude.isEmpty()){
+                exclude_pattern= FileSystems.getDefault().getPathMatcher("glob:"+exclude);
             }
-
             if (starting_directory != null) {
                 base_path= Path.of(starting_directory).toAbsolutePath().normalize();
             }

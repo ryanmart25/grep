@@ -1,11 +1,8 @@
 package dev.martinez;
 
-import java.io.IOException;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.concurrent.*;
-import java.util.regex.Pattern;
 
 public class Orchestrator implements Callable<Integer>{
     private final int num_cores = Runtime.getRuntime().availableProcessors();
@@ -13,8 +10,8 @@ public class Orchestrator implements Callable<Integer>{
     private final String include_pattern;
     private final String exclude_pattern;
     private int occurrences;
-    public static volatile CopyOnWriteArrayList<Path> seen = new CopyOnWriteArrayList<>();
-    public static volatile CopyOnWriteArrayList<Path> matched = new CopyOnWriteArrayList<>();
+    public static volatile LinkedBlockingQueue<Path> seen = new LinkedBlockingQueue<>();
+    public static volatile LinkedBlockingQueue<Path> matched = new LinkedBlockingQueue<>();
     public static volatile LinkedBlockingQueue<Path> pendingWork = new LinkedBlockingQueue<>();
     private final ExecutorService pool= Executors.newFixedThreadPool(num_cores);
     public Orchestrator(Path base, String include_pattern, String excludePattern) {
@@ -26,63 +23,34 @@ public class Orchestrator implements Callable<Integer>{
     @Override
     public Integer call() throws Exception {
 
-        Files.walkFileTree(base, new SimpleFileVisitor<>(){
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs){
-                if(!exclude_pattern.isEmpty() && Pattern.matches(exclude_pattern, dir.toString())){
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                else{
-                    return FileVisitResult.CONTINUE;
-                }
-            }
-            @Override
-            public FileVisitResult visitFile(Path dir, BasicFileAttributes attrs) throws IOException{
+        PathMatcher include = FileSystems.getDefault().getPathMatcher("glob:"+ include_pattern);
+        PathMatcher exclude = null;
+        if(!exclude_pattern.isEmpty()){ // exclude pattern existence check happens here. I wanted it to be separate from
+            // the logic of walking the file tree.
+            exclude = FileSystems.getDefault().getPathMatcher("glob:"+exclude_pattern);
+            Files.walkFileTree(base, new HasExcludeFileVisitor(exclude));
+        }else{
+            Files.walkFileTree(base, new NoExcludeFileVisitor());
+        }
 
-                if(!exclude_pattern.isEmpty() &&Pattern.matches(exclude_pattern, dir.toString())){
-                    return FileVisitResult.SKIP_SUBTREE;
-                }else{
-
-                    pendingWork.add(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            }
-            @Override
-            public FileVisitResult visitFileFailed(Path dir, IOException e){
-                if (e != null){
-                    if (e instanceof AccessDeniedException){
-                        System.err.println("Encountered folder we don't have access to. ");
-                        return FileVisitResult.CONTINUE;
-                    }else{
-                        return FileVisitResult.TERMINATE;
-                    }
-                }
-                return FileVisitResult.CONTINUE;
-            }
-
-        });
-        System.out.println("Finished iterating through folder.");
-        System.out.println("Created a pool with " + num_cores+ "workers");
-        ArrayList<Future> futures = new ArrayList<>();
         while(!pendingWork.isEmpty()) {
-            ArrayList<Path> submittedWork = new ArrayList<>(20);
-            pendingWork.drainTo(submittedWork, 20);
-            futures.add(pool.submit(new Worker(submittedWork, base, include_pattern)));
+            // fire off worker threads.
+            ArrayList<Path> submittedWork = new ArrayList<>(100);
+            pendingWork.drainTo(submittedWork, 100);
+            pool.submit(new Worker(submittedWork, include));
         }
-        for (Future f : futures){
-            if(f.get() != null){
-                System.out.println("A task is still running");
-            }
-        }
-        System.out.println("Work done!");
-        if(!pool.awaitTermination(1, TimeUnit.MINUTES)){
-            System.err.println("Forcefully quitting worker threads. Took too long.");
+        // the work queue has been emptied.
+        // Worker threads are unable to publish new pending work, so it's safe to shut down the pool.
+        pool.shutdown();
+        if(!pool.awaitTermination(2, TimeUnit.MINUTES)){
+            // This timeout feels way too long, but I don't know how to intelligently decide what it should be.
+            pool.shutdownNow();
         }
         if(matched.isEmpty()){
-            System.out.println("Nothing added!");
+            System.out.println("Nothing found!");
         }
         for(Path p : matched){
-            System.out.println("grep: " + p);
+            System.out.println("fzf: " + p);
         }
         return 0;
     }
