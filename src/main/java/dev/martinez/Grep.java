@@ -24,6 +24,9 @@ public class Grep implements Callable<Integer> {
     private String starting_directory = "";
     @Option(names = {"-e", "--exclude"}, description = "exclude directories that match the expression.")
     private String exclude = "";
+    @Option(names = {"-c", "--count"}, description="don't output matches, just tally occurrences.")
+    private boolean count;
+
     public static void main(String[] args) {
         int exit_code = new CommandLine(new Grep()).execute(args);
         System.exit(exit_code);
@@ -41,7 +44,9 @@ public class Grep implements Callable<Integer> {
             if (starting_directory != null) {
                 base_path= Path.of(starting_directory).toAbsolutePath().normalize();
             }
-            var queen_bee = new Orchestrator(base_path, pattern, exclude);
+            var queen_bee = count ?
+                    new Orchestrator(base_path, pattern, exclude, true)
+                    : new Orchestrator(base_path, pattern, exclude, false);
             queen_bee.call();
             return 0;
         }catch (SecurityException e){

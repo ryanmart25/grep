@@ -4,11 +4,11 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 
-public class Worker implements Runnable {
+public class MatchAndPrintWorker implements Runnable {
     // a simple PatternMatching thread. Does not publish new work to the pending work queue.
-    private final ArrayList<Path> paths;
-    private final PathMatcher include;
-    public Worker(ArrayList<Path> paths, PathMatcher regex) {
+    protected final ArrayList<Path> paths;
+    protected final PathMatcher include;
+    public MatchAndPrintWorker(ArrayList<Path> paths, PathMatcher regex) {
         this.paths = paths;
         this.include = regex;
     }
